@@ -130,7 +130,7 @@ function initialize_raw_loop_async(connection::HTTPConnection, buffer; skip_pref
         end
     end
 
-    put!(channel_act_raw, SettingsFrame(false, Nullable(Array{Tuple{Frame.SETTING_IDENTIFIER, UInt32}, 1}())))
+    put!(channel_act_raw, SettingsFrame(false, Array{Tuple{Frame.SETTING_IDENTIFIER, UInt32}, 1}()))
 end
 
 function process_channel_act(connection::HTTPConnection)
@@ -146,28 +146,29 @@ function process_channel_act(connection::HTTPConnection)
     end
 
     stream = get_stream(connection, act.stream_identifier)
-    if stream.state == IDLE && !isnull(connection.settings.max_concurrent_streams) &&
-        concurrent_streams_count(connection) > get(connection.settings.max_concurrent_streams)
+
+    if (stream.state == IDLE) && (connection.settings.max_concurrent_streams != nothing) && (concurrent_streams_count(connection) > connection.settings.max_concurrent_streams)
         put!(channel_act, act)
         return
     end
-
     if typeof(act) == ActSendHeaders
-        if !isnull(connection.settings.max_header_list_size)
+        if connection.settings.max_header_list_size != nothing
             sum = 0
 
             for k in keys(act.headers)
                 sum += length(k) + length(act.headers[k]) + 32
             end
 
-            if sum > get(connection.settings.max_header_list_size)
+            if sum > connection.settings.max_header_list_size
                 goaway!(connection, InternalError("Header list size exceeded."))
                 return
             end
         end
-
+        println("getting frame")
         frame = send_stream_headers(connection, act)
+        println(frame)
         handle_stream_state!(connection, frame, true)
+        print("done handling stream state")
     elseif typeof(act) == ActSendData
         frame = send_stream_data(connection, act)
         handle_stream_state!(connection, frame, true)
@@ -196,14 +197,14 @@ function process_channel_evt(connection::HTTPConnection)
 
     if typeof(frame) == SettingsFrame
         if !frame.is_ack
-            parameters = frame.parameters.value
+            parameters = frame.parameters
             if length(parameters) > 0
                 for i = 1:length(parameters)
                     handle_setting!(connection, parameters[i][1], parameters[i][2])
                 end
             end
             put!(channel_act_raw,
-                 SettingsFrame(true, Nullable{Tuple{Frame.SETTING_IDENTIFIER, UInt32}}()))
+                 SettingsFrame(true, nothing))
         end
         return
     end

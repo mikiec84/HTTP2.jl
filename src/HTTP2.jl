@@ -1,5 +1,8 @@
 module HTTP2
 
+using Sockets
+using Dates
+
 import HttpCommon: Headers
 
 # package code goes here
